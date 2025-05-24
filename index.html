@@ -3,63 +3,174 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Flowise Chat + n8n</title>
+    <title>Healthcare Chat Assistant</title>
+    <style>
+      #chat-container {
+        width: 400px;
+        margin: 20px auto;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        overflow: hidden;
+      }
+      #chat-header {
+        background: #3f51b5;
+        color: white;
+        padding: 10px;
+        text-align: center;
+      }
+      #chat-messages {
+        height: 300px;
+        overflow-y: auto;
+        padding: 10px;
+        background: #f9f9f9;
+      }
+      #user-input {
+        display: flex;
+        padding: 10px;
+        background: #fff;
+      }
+      #message-input {
+        flex-grow: 1;
+        padding: 8px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+      }
+      #send-button {
+        margin-left: 10px;
+        padding: 8px 15px;
+        background: #3f51b5;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+    </style>
   </head>
   <body>
-    <h1>Support Chat Assistant 💬</h1>
+    <div id="chat-container">
+      <div id="chat-header">
+        <h2>Healthcare Support</h2>
+      </div>
+      <div id="chat-messages"></div>
+      <div id="user-input">
+        <input
+          type="text"
+          id="message-input"
+          placeholder="Type your message..."
+        />
+        <button id="send-button">Send</button>
+      </div>
+    </div>
 
-    <script type="module">
-      import Chatbot from "https://cdn.jsdelivr.net/npm/flowise-embed/dist/web.js";
-
-      const n8nWebhookUrl =
+    <script>
+      // Конфігурація
+      const FLOWISE_API =
+        "https://app.myboxy.ai/api/v1/prediction/5cdfad8c-7d18-4f08-91a9-ad22f9537a8c";
+      const N8N_WEBHOOK =
         "https://mnatalis.app.n8n.cloud/webhook/zammad-ticket";
-      const triggerWords = ["support", "caregiver", "help", "take to a person"];
+      const FIXED_CUSTOMER_ID = "healthcare_chatbot@yourdomain.com";
+      const TRIGGER_WORDS = [
+        "support",
+        "caregiver",
+        "help",
+        "take to a person",
+      ];
 
-      // 👇 Відправити POST-запит до n8n
-      const sendToN8N = async (userMessage) => {
-        const payload = {
-          title: "Support Request from Chatbot",
-          group_id: 1,
-          customer: "chatuser@example.com",
-          article: {
-            subject: "User Message Triggered Support",
-            body: userMessage,
-            type: "note",
-            internal: false,
-          },
-        };
+      // Елементи DOM
+      const chatMessages = document.getElementById("chat-messages");
+      const messageInput = document.getElementById("message-input");
+      const sendButton = document.getElementById("send-button");
 
-        await fetch(n8nWebhookUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization:
-              "Token token=VTvY-c0VgWmQKV01aoBgWPc4UUAYkkl5tDGI0hl6IY24KBFNEX0uaoWltnV_ONUN",
-          },
-          body: JSON.stringify(payload),
-        });
-      };
+      // Додати повідомлення в чат
+      function addMessage(role, content) {
+        const messageDiv = document.createElement("div");
+        messageDiv.className = role === "user" ? "user-message" : "bot-message";
+        messageDiv.style.margin = "5px";
+        messageDiv.style.padding = "8px";
+        messageDiv.style.borderRadius = "4px";
+        messageDiv.style.backgroundColor =
+          role === "user" ? "#d0e0ff" : "#f0f0ff";
+        messageDiv.textContent = content;
+        chatMessages.appendChild(messageDiv);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+      }
 
-      Chatbot.init({
-        chatflowid: "5cdfad8c-7d18-4f08-91a9-ad22f9537a8c",
-        apiHost: "https://app.myboxy.ai",
-        theme: {
-          chatWindow: {
-            welcomeMessage: "Hi! How can I help you? 😊",
-            backgroundColor: "#ffffff",
-            botMessage: { backgroundColor: "#f0f0ff" },
-            userMessage: { backgroundColor: "#d0e0ff" },
-          },
-        },
-        // 👇 Обробка кожного повідомлення користувача
-        onSend: async (userMessage) => {
-          const containsTrigger = triggerWords.some((word) =>
-            userMessage.toLowerCase().includes(word)
+      // Відправити повідомлення до Flowise
+      async function sendToFlowise(message) {
+        try {
+          const response = await fetch(FLOWISE_API, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              question: message,
+              overrideConfig: {},
+            }),
+          });
+
+          if (!response.ok) throw new Error("Flowise API error");
+          return await response.json();
+        } catch (error) {
+          console.error("Flowise error:", error);
+          return { text: "Sorry, I'm having trouble. Please try again." };
+        }
+      }
+
+      // Відправити запит до n8n для створення твікету
+      async function createZammadTicket(message) {
+        try {
+          const response = await fetch(N8N_WEBHOOK, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization:
+                "Token token=VTvY-c0VgWmQKV01aoBgWPc4UUAYkkl5tDGI0hl6IY24KBFNEX0uaoWltnV_ONUN",
+            },
+            body: JSON.stringify({
+              message: message,
+              customer_id: FIXED_CUSTOMER_ID,
+            }),
+          });
+          return await response.json();
+        } catch (error) {
+          console.error("n8n error:", error);
+        }
+      }
+
+      // Обробка відправки повідомлення
+      sendButton.addEventListener("click", async () => {
+        const userMessage = messageInput.value.trim();
+        if (!userMessage) return;
+
+        // Додати повідомлення користувача
+        addMessage("user", userMessage);
+        messageInput.value = "";
+
+        // Перевірка на тригерні слова
+        const hasTrigger = TRIGGER_WORDS.some((word) =>
+          userMessage.toLowerCase().includes(word.toLowerCase())
+        );
+
+        if (hasTrigger) {
+          addMessage(
+            "bot",
+            "One moment while I connect you to a support agent..."
           );
-          if (containsTrigger) {
-            await sendToN8N(userMessage);
-          }
-        },
+          await createZammadTicket(userMessage);
+          return;
+        }
+
+        // Отримати відповідь від Flowise
+        const botResponse = await sendToFlowise(userMessage);
+        addMessage("bot", botResponse.text || botResponse);
+      });
+
+      // Дозволити відправку через Enter
+      messageInput.addEventListener("keypress", (e) => {
+        if (e.key === "Enter") {
+          sendButton.click();
+        }
       });
     </script>
   </body>
