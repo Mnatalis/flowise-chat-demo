@@ -3,19 +3,21 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Healthcare Chat Assistant</title>
+    <title>Healthcare Chat Support</title>
     <style>
+      /* Стили остаются без изменений */
       #chat-container {
         width: 400px;
         margin: 20px auto;
         border: 1px solid #ddd;
         border-radius: 8px;
         overflow: hidden;
+        font-family: Arial, sans-serif;
       }
       #chat-header {
         background: #3f51b5;
         color: white;
-        padding: 10px;
+        padding: 15px;
         text-align: center;
       }
       #chat-messages {
@@ -24,10 +26,25 @@
         padding: 10px;
         background: #f9f9f9;
       }
+      .message {
+        margin: 5px;
+        padding: 8px 12px;
+        border-radius: 4px;
+        max-width: 80%;
+      }
+      .user-message {
+        background: #d0e0ff;
+        margin-left: auto;
+      }
+      .bot-message {
+        background: #f0f0ff;
+        margin-right: auto;
+      }
       #user-input {
         display: flex;
         padding: 10px;
         background: #fff;
+        border-top: 1px solid #ddd;
       }
       #message-input {
         flex-grow: 1;
@@ -43,6 +60,9 @@
         border: none;
         border-radius: 4px;
         cursor: pointer;
+      }
+      #send-button:hover {
+        background: #2c3e9b;
       }
     </style>
   </head>
@@ -63,12 +83,12 @@
     </div>
 
     <script>
-      // Конфігурація
+      // Configuration
       const FLOWISE_API =
-        "https://cors-anywhere.herokuapp.com/https://app.myboxy.ai/api/v1/prediction/5cdfad8c-7d18-4f08-91a9-ad22f9537a8c";
+        "https://app.myboxy.ai/api/v1/prediction/5cdfad8c-7d18-4f08-91a9-ad22f9537a8c";
       const N8N_WEBHOOK =
-        "https://mnatalis.app.n8n.cloud/webhook/zammad-ticket";
-      const FIXED_CUSTOMER_ID = "healthcare_chatbot@yourdomain.com";
+        "https://corsproxy.io/?https://mnatalis.app.n8n.cloud/webhook/zammad-ticket";
+      const FIXED_CUSTOMER_EMAIL = "healthcare_chatbot@yourdomain.com";
       const TRIGGER_WORDS = [
         "support",
         "caregiver",
@@ -76,50 +96,63 @@
         "take to a person",
       ];
 
-      // Елементи DOM
+      // DOM Elements
       const chatMessages = document.getElementById("chat-messages");
       const messageInput = document.getElementById("message-input");
       const sendButton = document.getElementById("send-button");
 
-      // Додати повідомлення в чат
+      // Session management
+      let sessionId =
+        localStorage.getItem("chatSessionId") ||
+        "session_" + Math.random().toString(36).substr(2, 9);
+      localStorage.setItem("chatSessionId", sessionId);
+
+      // Add message to chat
       function addMessage(role, content) {
         const messageDiv = document.createElement("div");
-        messageDiv.className = role === "user" ? "user-message" : "bot-message";
-        messageDiv.style.margin = "5px";
-        messageDiv.style.padding = "8px";
-        messageDiv.style.borderRadius = "4px";
-        messageDiv.style.backgroundColor =
-          role === "user" ? "#d0e0ff" : "#f0f0ff";
+        messageDiv.className = `message ${role}-message`;
         messageDiv.textContent = content;
         chatMessages.appendChild(messageDiv);
         chatMessages.scrollTop = chatMessages.scrollHeight;
       }
 
-      // Відправити повідомлення до Flowise
-      async function sendToFlowise(message) {
+      // Flowise API query (updated to match provided format)
+      async function queryFlowise(data) {
         try {
           const response = await fetch(FLOWISE_API, {
             method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              question: message,
-              overrideConfig: {},
-            }),
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(data),
           });
 
-          if (!response.ok) throw new Error("Flowise API error");
+          if (!response.ok) {
+            throw new Error(`Flowise API error: ${response.status}`);
+          }
+
           return await response.json();
         } catch (error) {
-          console.error("Flowise error:", error);
-          return { text: "Sorry, I'm having trouble. Please try again." };
+          console.error("Flowise request failed:", error);
+          return {
+            text: "Sorry, I'm having technical issues. Please try again later.",
+          };
         }
       }
 
-      // Відправити запит до n8n для створення твікету
-      async function createZammadTicket(message) {
+      // Create ticket in Zammad via n8n
+      async function createZammadTicket(userMessage) {
         try {
+          const payload = {
+            title: "Support Request from Healthcare Chatbot",
+            group_id: 1,
+            customer: FIXED_CUSTOMER_EMAIL,
+            article: {
+              subject: "User requested assistance",
+              body: `Message: ${userMessage}\nSession ID: ${sessionId}`,
+              type: "note",
+              internal: false,
+            },
+          };
+
           const response = await fetch(N8N_WEBHOOK, {
             method: "POST",
             headers: {
@@ -127,51 +160,53 @@
               Authorization:
                 "Token token=VTvY-c0VgWmQKV01aoBgWPc4UUAYkkl5tDGI0hl6IY24KBFNEX0uaoWltnV_ONUN",
             },
-            body: JSON.stringify({
-              message: message,
-              customer_id: FIXED_CUSTOMER_ID,
-            }),
+            body: JSON.stringify(payload),
           });
+
           return await response.json();
         } catch (error) {
-          console.error("n8n error:", error);
+          console.error("Failed to create ticket:", error);
+          return null;
         }
       }
 
-      // Обробка відправки повідомлення
-      sendButton.addEventListener("click", async () => {
+      // Handle message sending
+      async function handleSendMessage() {
         const userMessage = messageInput.value.trim();
         if (!userMessage) return;
 
-        // Додати повідомлення користувача
         addMessage("user", userMessage);
         messageInput.value = "";
 
-        // Перевірка на тригерні слова
+        // Check for trigger words
         const hasTrigger = TRIGGER_WORDS.some((word) =>
           userMessage.toLowerCase().includes(word.toLowerCase())
         );
 
         if (hasTrigger) {
-          addMessage(
-            "bot",
-            "One moment while I connect you to a support agent..."
-          );
+          addMessage("bot", "Connecting you to a support agent...");
           await createZammadTicket(userMessage);
           return;
         }
 
-        // Отримати відповідь від Flowise
-        const botResponse = await sendToFlowise(userMessage);
-        addMessage("bot", botResponse.text || botResponse);
+        // Get bot response
+        const response = await queryFlowise({ question: userMessage });
+        addMessage("bot", response.text || response);
+      }
+
+      // Event listeners
+      sendButton.addEventListener("click", handleSendMessage);
+      messageInput.addEventListener("keypress", (e) => {
+        if (e.key === "Enter") handleSendMessage();
       });
 
-      // Дозволити відправку через Enter
-      messageInput.addEventListener("keypress", (e) => {
-        if (e.key === "Enter") {
-          sendButton.click();
-        }
-      });
+      // Initial welcome
+      setTimeout(() => {
+        addMessage(
+          "bot",
+          "Hello! I'm your healthcare assistant. How can I help?"
+        );
+      }, 500);
     </script>
   </body>
 </html>
