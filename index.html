@@ -5,90 +5,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Healthcare Chat Support</title>
     <style>
-      /* Стили остаются без изменений */
-      #chat-container {
-        width: 400px;
-        margin: 20px auto;
-        border: 1px solid #ddd;
-        border-radius: 8px;
-        overflow: hidden;
-        font-family: Arial, sans-serif;
-      }
-      #chat-header {
-        background: #3f51b5;
-        color: white;
-        padding: 15px;
-        text-align: center;
-      }
-      #chat-messages {
-        height: 300px;
-        overflow-y: auto;
-        padding: 10px;
-        background: #f9f9f9;
-      }
-      .message {
-        margin: 5px;
-        padding: 8px 12px;
-        border-radius: 4px;
-        max-width: 80%;
-      }
-      .user-message {
-        background: #d0e0ff;
-        margin-left: auto;
-      }
-      .bot-message {
-        background: #f0f0ff;
-        margin-right: auto;
-      }
-      #user-input {
-        display: flex;
-        padding: 10px;
-        background: #fff;
-        border-top: 1px solid #ddd;
-      }
-      #message-input {
-        flex-grow: 1;
-        padding: 8px;
-        border: 1px solid #ddd;
-        border-radius: 4px;
-      }
-      #send-button {
-        margin-left: 10px;
-        padding: 8px 15px;
-        background: #3f51b5;
-        color: white;
-        border: none;
-        border-radius: 4px;
-        cursor: pointer;
-      }
-      #send-button:hover {
-        background: #2c3e9b;
-      }
+      /* Ваши стили остаются без изменений */
     </style>
   </head>
   <body>
     <div id="chat-container">
-      <div id="chat-header">
-        <h2>Healthcare Support</h2>
-      </div>
-      <div id="chat-messages"></div>
-      <div id="user-input">
-        <input
-          type="text"
-          id="message-input"
-          placeholder="Type your message..."
-        />
-        <button id="send-button">Send</button>
-      </div>
+      <!-- Ваш интерфейс чата -->
     </div>
 
     <script>
-      // Configuration
+      // Конфигурация
       const FLOWISE_API =
         "https://app.myboxy.ai/api/v1/prediction/5cdfad8c-7d18-4f08-91a9-ad22f9537a8c";
       const N8N_WEBHOOK =
-        "https://corsproxy.io/?https://mnatalis.app.n8n.cloud/webhook/create-zammad-ticket";
-
+        "https://mnatalis.app.n8n.cloud/webhook/create-zammad-ticket";
       const FIXED_CUSTOMER_EMAIL = "healthcare_chatbot@yourdomain.com";
       const TRIGGER_WORDS = [
         "support",
@@ -97,67 +27,45 @@
         "take to a person",
       ];
 
-      // DOM Elements
-      const chatMessages = document.getElementById("chat-messages");
-      const messageInput = document.getElementById("message-input");
-      const sendButton = document.getElementById("send-button");
+      // Решение для CORS - прокси-сервер
+      const CORS_PROXY = "https://cors-anywhere.herokuapp.com/";
 
-      // Session management
-      let sessionId =
-        localStorage.getItem("chatSessionId") ||
-        "session_" + Math.random().toString(36).substr(2, 9);
-      localStorage.setItem("chatSessionId", sessionId);
-
-      // Add message to chat
-      function addMessage(role, content) {
-        const messageDiv = document.createElement("div");
-        messageDiv.className = `message ${role}-message`;
-        messageDiv.textContent = content;
-        chatMessages.appendChild(messageDiv);
-        chatMessages.scrollTop = chatMessages.scrollHeight;
-      }
-
-      // Flowise API query (updated to match provided format)
-      async function queryFlowise(data) {
+      async function queryFlowise(message) {
         try {
-          const response = await fetch(FLOWISE_API, {
+          const response = await fetch(CORS_PROXY + FLOWISE_API, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(data),
+            headers: {
+              "Content-Type": "application/json",
+              "X-Requested-With": "XMLHttpRequest", // Необходимо для cors-anywhere
+            },
+            body: JSON.stringify({ question: message }),
           });
-
-          if (!response.ok) {
-            throw new Error(`Flowise API error: ${response.status}`);
-          }
-
           return await response.json();
         } catch (error) {
-          console.error("Flowise request failed:", error);
-          return {
-            text: "Sorry, I'm having technical issues. Please try again later.",
-          };
+          console.error("Flowise error:", error);
+          return { text: "Извините, возникла техническая ошибка" };
         }
       }
 
-      // Create ticket in Zammad via n8n
-      async function createZammadTicket(userMessage) {
+      async function createZammadTicket(message) {
         try {
           const payload = {
-            title: "Support Request from Healthcare Chatbot",
+            title: "Support Request from Chat",
             group_id: 1,
             customer: FIXED_CUSTOMER_EMAIL,
             article: {
-              subject: "User requested assistance",
-              body: `Message: ${userMessage}\nSession ID: ${sessionId}`,
+              subject: "Chat Support Request",
+              body: message,
               type: "note",
               internal: false,
             },
           };
 
-          const response = await fetch(N8N_WEBHOOK, {
+          const response = await fetch(CORS_PROXY + N8N_WEBHOOK, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
+              "X-Requested-With": "XMLHttpRequest",
               Authorization:
                 "Token token=VTvY-c0VgWmQKV01aoBgWPc4UUAYkkl5tDGI0hl6IY24KBFNEX0uaoWltnV_ONUN",
             },
@@ -166,48 +74,12 @@
 
           return await response.json();
         } catch (error) {
-          console.error("Failed to create ticket:", error);
+          console.error("Zammad error:", error);
           return null;
         }
       }
 
-      // Handle message sending
-      async function handleSendMessage() {
-        const userMessage = messageInput.value.trim();
-        if (!userMessage) return;
-
-        addMessage("user", userMessage);
-        messageInput.value = "";
-
-        // Check for trigger words
-        const hasTrigger = TRIGGER_WORDS.some((word) =>
-          userMessage.toLowerCase().includes(word.toLowerCase())
-        );
-
-        if (hasTrigger) {
-          addMessage("bot", "Connecting you to a support agent...");
-          await createZammadTicket(userMessage);
-          return;
-        }
-
-        // Get bot response
-        const response = await queryFlowise({ question: userMessage });
-        addMessage("bot", response.text || response);
-      }
-
-      // Event listeners
-      sendButton.addEventListener("click", handleSendMessage);
-      messageInput.addEventListener("keypress", (e) => {
-        if (e.key === "Enter") handleSendMessage();
-      });
-
-      // Initial welcome
-      setTimeout(() => {
-        addMessage(
-          "bot",
-          "Hello! I'm your healthcare assistant. How can I help?"
-        );
-      }, 500);
+      // Ваши функции handleSendMessage, addMessage и обработчики событий
     </script>
   </body>
 </html>
