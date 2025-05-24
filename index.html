@@ -2,87 +2,65 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>Support Chat</title>
-    <style>
-      body {
-        font-family: Arial, sans-serif;
-        padding: 20px;
-      }
-    </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Flowise Chat + n8n</title>
   </head>
   <body>
-    <h2>Support Assistant</h2>
+    <h1>Support Chat Assistant 💬</h1>
 
-    <!-- Embed Flowise chatbot -->
     <script type="module">
       import Chatbot from "https://cdn.jsdelivr.net/npm/flowise-embed/dist/web.js";
+
+      const n8nWebhookUrl =
+        "https://mnatalis.app.n8n.cloud/webhook/zammad-ticket";
+      const triggerWords = ["support", "caregiver", "help", "take to a person"];
+
+      // 👇 Відправити POST-запит до n8n
+      const sendToN8N = async (userMessage) => {
+        const payload = {
+          title: "Support Request from Chatbot",
+          group_id: 1,
+          customer: "chatuser@example.com",
+          article: {
+            subject: "User Message Triggered Support",
+            body: userMessage,
+            type: "note",
+            internal: false,
+          },
+        };
+
+        await fetch(n8nWebhookUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization:
+              "Token token=VTvY-c0VgWmQKV01aoBgWPc4UUAYkkl5tDGI0hl6IY24KBFNEX0uaoWltnV_ONUN",
+          },
+          body: JSON.stringify(payload),
+        });
+      };
+
       Chatbot.init({
         chatflowid: "5cdfad8c-7d18-4f08-91a9-ad22f9537a8c",
         apiHost: "https://app.myboxy.ai",
         theme: {
-          buttonBgColor: "#4F46E5",
-          chatWindowBgColor: "#f5f5f5",
+          chatWindow: {
+            welcomeMessage: "Hi! How can I help you? 😊",
+            backgroundColor: "#ffffff",
+            botMessage: { backgroundColor: "#f0f0ff" },
+            userMessage: { backgroundColor: "#d0e0ff" },
+          },
+        },
+        // 👇 Обробка кожного повідомлення користувача
+        onSend: async (userMessage) => {
+          const containsTrigger = triggerWords.some((word) =>
+            userMessage.toLowerCase().includes(word)
+          );
+          if (containsTrigger) {
+            await sendToN8N(userMessage);
+          }
         },
       });
-    </script>
-
-    <!-- DOM observer to detect user messages and send to n8n -->
-    <script>
-      const n8nWebhook = "https://mnatalis.app.n8n.cloud/webhook/zammad-ticket";
-      const triggerWords = ["support", "caregiver", "help", "take to a person"];
-
-      const observer = new MutationObserver((mutationsList) => {
-        for (const mutation of mutationsList) {
-          if (mutation.type === "childList") {
-            mutation.addedNodes.forEach((node) => {
-              if (node.nodeType === Node.ELEMENT_NODE && node.textContent) {
-                const text = node.textContent.trim().toLowerCase();
-
-                // Check if it's a user message (green or right-aligned, adjust if needed)
-                if (
-                  node.className.includes("user") ||
-                  node.className.includes("right")
-                ) {
-                  const hasTrigger = triggerWords.some((word) =>
-                    text.includes(word)
-                  );
-
-                  if (hasTrigger) {
-                    fetch(n8nWebhook, {
-                      method: "POST",
-                      headers: {
-                        "Content-Type": "application/json",
-                        Authorization:
-                          "Token token=VTvY-c0VgWmQKV01aoBgWPc4UUAYkkl5tDGI0hl6IY24KBFNEX0uaoWltnV_ONUN",
-                      },
-                      body: JSON.stringify({
-                        title: "Support Request from Chatbot",
-                        group_id: 1,
-                        customer: "chatuser@example.com",
-                        article: {
-                          subject: "Chat Request",
-                          body: text,
-                          type: "note",
-                          internal: false,
-                        },
-                      }),
-                    });
-                  }
-                }
-              }
-            });
-          }
-        }
-      });
-
-      // Start observing chat container when it appears
-      const waitForChat = setInterval(() => {
-        const chatContainer = document.querySelector('div[class*="chatbot"]');
-        if (chatContainer) {
-          observer.observe(chatContainer, { childList: true, subtree: true });
-          clearInterval(waitForChat);
-        }
-      }, 500);
     </script>
   </body>
 </html>
