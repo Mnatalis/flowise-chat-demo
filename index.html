@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Support Chat</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        padding: 20px;
+      }
+      #chat {
+        border: 1px solid #ccc;
+        padding: 10px;
+        height: 300px;
+        overflow-y: auto;
+        margin-bottom: 10px;
+      }
+      .message {
+        margin: 5px 0;
+      }
+      .user {
+        text-align: right;
+        color: green;
+      }
+      .bot {
+        text-align: left;
+        color: blue;
+      }
+      input {
+        width: 80%;
+        padding: 8px;
+      }
+      button {
+        padding: 8px 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>Support Assistant</h2>
+    <div id="chat"></div>
+    <input type="text" id="userInput" placeholder="Type your message..." />
+    <button onclick="sendMessage()">Send</button>
+
+    <script>
+      const flowiseEndpoint =
+        "https://app.myboxy.ai/api/v1/prediction/5cdfad8c-7d18-4f08-91a9-ad22f9537a8c";
+      const n8nWebhook = "https://mnatalis.app.n8n.cloud/webhook/zammad-ticket";
+      const triggerWords = ["support", "caregiver", "help", "take to a person"];
+
+      const chat = document.getElementById("chat");
+      const input = document.getElementById("userInput");
+
+      function appendMessage(text, className) {
+        const div = document.createElement("div");
+        div.className = "message " + className;
+        div.textContent = text;
+        chat.appendChild(div);
+        chat.scrollTop = chat.scrollHeight;
+      }
+
+      async function sendMessage() {
+        const userMessage = input.value.trim();
+        if (!userMessage) return;
+
+        appendMessage(userMessage, "user");
+        input.value = "";
+
+        // Send to Flowise
+        const flowiseResponse = await fetch(flowiseEndpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question: userMessage }),
+        });
+
+        const flowiseData = await flowiseResponse.json();
+        const botReply = flowiseData.text || "(No answer returned)";
+        appendMessage(botReply, "bot");
+
+        // Check for trigger and send to n8n
+        const lowerMessage = userMessage.toLowerCase();
+        const hasTrigger = triggerWords.some((word) =>
+          lowerMessage.includes(word)
+        );
+
+        if (hasTrigger) {
+          fetch(n8nWebhook, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization:
+                "Token token=VTvY-c0VgWmQKV01aoBgWPc4UUAYkkl5tDGI0hl6IY24KBFNEX0uaoWltnV_ONUN",
+            },
+            body: JSON.stringify({
+              title: "Support Request from Chatbot",
+              group_id: 1,
+              customer: "chatuser@example.com",
+              article: {
+                subject: "Chat Request",
+                body: userMessage,
+                type: "note",
+                internal: false,
+              },
+            }),
+          });
+        }
+      }
+    </script>
+  </body>
+</html>
